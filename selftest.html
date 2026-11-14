@@ -1,0 +1,112 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Gravity physics self-test</title>
+<style>body { background: #000; color: #5af0b8; font: 13px Consolas, monospace; } .fail { color: #ff6a6a; }</style>
+</head>
+<body>
+<h3>gravity physics self-test</h3>
+<pre id="selftest">running...</pre>
+<script src="physics.js"></script>
+<script>
+"use strict";
+(function () {
+  const { System, KMS_PER_AU_DAY } = window.GravityPhysics;
+  const results = [];
+  const check = (name, ok, detail) => results.push({ name, ok: !!ok, detail });
+  const dist = (a, b) => Math.hypot(a.x[0] - b.x[0], a.x[1] - b.x[1], a.x[2] - b.x[2]);
+  const angle = (b, c) => Math.atan2(b.x[1] - c.x[1], b.x[0] - c.x[0]);
+  const t0 = performance.now();
+
+  // 1. Ten years of the Sun-Earth-Moon-Mars system.
+  const s = new System().load("solar");
+  const E0 = s.energy();
+  const sun = s.find("Sun"), earth = s.find("Earth"), moon = s.find("Moon"), mars = s.find("Mars");
+  const range = { earth: [Infinity, 0], moon: [Infinity, 0], mars: [Infinity, 0] };
+  const grow = (k, v) => { range[k][0] = Math.min(range[k][0], v); range[k][1] = Math.max(range[k][1], v); };
+  let prevE = angle(earth, sun), prevM = angle(mars, sun), prevL = angle(moon, earth);
+  let firstEarthLap = null, firstMarsLap = null, firstMoonLap = null;
+  let accE = 0, accM = 0, accL = 0;
+  const unwrap = d => d > Math.PI ? d - 2 * Math.PI : d < -Math.PI ? d + 2 * Math.PI : d;
+  for (let day = 0; day < 3652.5; day += 0.25) {
+    s.advance(0.25);
+    grow("earth", dist(earth, sun)); grow("moon", dist(moon, earth)); grow("mars", dist(mars, sun));
+    const aE = angle(earth, sun), aM = angle(mars, sun), aL = angle(moon, earth);
+    accE += unwrap(aE - prevE); accM += unwrap(aM - prevM); accL += unwrap(aL - prevL);
+    prevE = aE; prevM = aM; prevL = aL;
+    if (firstEarthLap === null && accE >= 2 * Math.PI) firstEarthLap = s.t;
+    if (firstMarsLap === null && accM >= 2 * Math.PI) firstMarsLap = s.t;
+    if (firstMoonLap === null && accL >= 2 * Math.PI) firstMoonLap = s.t;
+  }
+  const drift = Math.abs((s.energy() - E0) / E0);
+  check("energy conserved over 10 years", drift < 1e-5, `relative drift ${drift.toExponential(2)}`);
+  check("Earth stays 0.98-1.02 AU from the Sun", range.earth[0] > 0.975 && range.earth[1] < 1.025,
+        `${range.earth[0].toFixed(4)} - ${range.earth[1].toFixed(4)} AU`);
+  check("Moon stays 356,000-407,000 km from Earth", range.moon[0] * 149597870.7 > 340000 && range.moon[1] * 149597870.7 < 420000,
+        `${Math.round(range.moon[0] * 149597870.7)} - ${Math.round(range.moon[1] * 149597870.7)} km`);
+  check("Mars stays 1.38-1.67 AU from the Sun", range.mars[0] > 1.36 && range.mars[1] < 1.69,
+        `${range.mars[0].toFixed(3)} - ${range.mars[1].toFixed(3)} AU`);
+  check("Earth's year is 365 days", Math.abs(firstEarthLap - 365.25) < 2, `${firstEarthLap && firstEarthLap.toFixed(1)} days`);
+  check("Mars's year is 687 days", Math.abs(firstMarsLap - 687) < 6, `${firstMarsLap && firstMarsLap.toFixed(1)} days`);
+  check("Moon goes round Earth in ~27 days", Math.abs(firstMoonLap - 27.3) < 1.5, `${firstMoonLap && firstMoonLap.toFixed(2)} days`);
+  const P = s.momentum();
+  check("total momentum stays zero", Math.hypot(...P) < 1e-12, `|P| = ${Math.hypot(...P).toExponential(2)}`);
+  const vEarth = Math.hypot(earth.v[0] - sun.v[0], earth.v[1] - sun.v[1], earth.v[2] - sun.v[2]) * KMS_PER_AU_DAY;
+  check("Earth moves at ~30 km/s", vEarth > 29 && vEarth < 30.5, `${vEarth.toFixed(2)} km/s`);
+
+  // 2. Drag the Sun 0.6 AU away from Earth (like the mouse does): nothing blows up, the Moon stays with Earth.
+  const d = new System().load("solar");
+  const dSun = d.find("Sun");
+  dSun.kinematic = true;
+  for (let i = 0; i < 60; i++) { dSun.x[0] -= 0.01; dSun.v = [-0.01 / 0.5, 0, 0]; d.advance(0.5); }
+  dSun.kinematic = false; dSun.v = [0, 0, 0];
+  d.advance(400);
+  const finite = d.alive().every(b => b.x.concat(b.v).every(Number.isFinite));
+  check("moving the Sun keeps the numbers finite", finite, `${d.alive().length} bodies`);
+  check("after the Sun moves, the Moon still orbits Earth", d.primaryOf(d.find("Moon")) === d.find("Earth"),
+        `Moon orbits ${(d.primaryOf(d.find("Moon")) || { name: "nothing" }).name}`);
+
+  // 3. Drop Earth (with no sideways speed) next to the Sun: it falls in and the two merge.
+  const c = new System().load("solar");
+  const cSun = c.find("Sun"), cEarth = c.find("Earth");
+  const M0 = c.totalMass();
+  cEarth.x = [cSun.x[0] + 0.05, cSun.x[1], cSun.x[2]];
+  cEarth.v = cSun.v.slice();
+  const P0 = c.momentum();
+  c.advance(30);
+  const P1 = c.momentum();
+  check("Earth dropped onto the Sun crashes into it", !cEarth.alive && c.events.some(e => e === "Earth crashed into the Sun"),
+        c.events.join("; ") || "no crash");
+  check("a crash keeps the total mass", Math.abs(c.totalMass() - M0) < 1e-15, `${M0} -> ${c.totalMass()}`);
+  check("a crash keeps the momentum", Math.hypot(P1[0] - P0[0], P1[1] - P0[1], P1[2] - P0[2]) < 1e-12, "");
+
+  // 4. The figure-eight: three equal stars come back to where they started after one period.
+  const f = new System().load("figure8");
+  const start = f.alive().map(b => b.x.slice());
+  const Tfig = 6.32591398 / Math.sqrt(window.GravityPhysics.G);
+  f.advance(Tfig);
+  const err = Math.max(...f.alive().map((b, i) => Math.hypot(b.x[0] - start[i][0], b.x[1] - start[i][1], b.x[2] - start[i][2])));
+  check("figure-eight returns after one period", err < 0.02, `off by ${err.toFixed(4)} AU after ${Tfig.toFixed(1)} days`);
+
+  // 5. Every scene loads and runs.
+  for (const name of Object.keys(window.GravityPhysics.PRESETS)) {
+    const p = new System().load(name);
+    const e0 = p.energy();
+    p.advance(365);
+    const ok = p.alive().every(b => b.x.concat(b.v).every(Number.isFinite));
+    check(`scene "${name}" runs a year`, ok, `energy drift ${Math.abs((p.energy() - e0) / e0).toExponential(1)}`);
+  }
+
+  const ms = performance.now() - t0;
+  check("fast enough (whole test under 5 s)", ms < 5000, `${Math.round(ms)} ms`);
+  const failed = results.filter(r => !r.ok).length;
+  const out = { passed: results.length - failed, failed, results };
+  const el = document.getElementById("selftest");
+  el.textContent = JSON.stringify(out, null, 1);
+  if (failed) el.className = "fail";
+  window.selftestResult = out;
+})();
+</script>
+</body>
+</html>

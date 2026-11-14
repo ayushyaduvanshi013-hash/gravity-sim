@@ -1,0 +1,100 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Gravity simulation</title>
+<style>
+  :root { --green: #5af0b8; --dim: #2f9c76; --border: #2a8f6c; --amber: #f5c84c; --panel: rgba(1, 13, 8, 0.82); }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; height: 100%; overflow: hidden; background: #000; color: var(--green);
+               font: 12px/1.45 Consolas, "Cascadia Mono", monospace; user-select: none; }
+  canvas { position: fixed; inset: 0; width: 100%; height: 100%; display: block; cursor: grab; touch-action: none; }
+  canvas.dragging { cursor: grabbing; }
+  canvas.over-body { cursor: pointer; }
+  .panel { position: fixed; background: var(--panel); border: 1px solid var(--border); padding: 8px 10px; }
+  #title { top: 10px; left: 10px; }
+  #title h1 { margin: 0; font-size: 14px; letter-spacing: 1px; }
+  #title .sub { color: var(--dim); }
+  #clock { color: var(--amber); }
+  #bodies { top: 10px; right: 10px; min-width: 300px; }
+  #bodies table { border-collapse: collapse; width: 100%; }
+  #bodies th { text-align: left; color: var(--dim); font-weight: normal; padding: 0 6px 2px 0; }
+  #bodies td { padding: 1px 6px 1px 0; white-space: nowrap; }
+  #bodies td.num { text-align: right; }
+  .dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-right: 6px; vertical-align: middle; }
+  #controls { bottom: 10px; left: 10px; width: 290px; }
+  #controls label { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin: 3px 0; }
+  #controls input[type=range] { width: 140px; accent-color: var(--green); }
+  #controls .row { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 6px; }
+  #controls .checks { display: flex; gap: 10px; flex-wrap: wrap; margin-top: 4px; }
+  #controls .checks label { margin: 0; justify-content: flex-start; gap: 4px; }
+  select, button { background: #03140d; color: var(--green); border: 1px solid var(--border);
+                   font: inherit; padding: 3px 8px; cursor: pointer; }
+  button:hover, select:hover { background: #0b3324; }
+  input[type=checkbox] { accent-color: var(--green); margin: 0; }
+  #help { bottom: 10px; right: 10px; max-width: 560px; color: var(--dim); }
+  #help b { color: var(--green); font-weight: normal; }
+  #toasts { position: fixed; top: 70px; left: 50%; transform: translateX(-50%); display: flex;
+            flex-direction: column; gap: 6px; align-items: center; pointer-events: none; }
+  .toast { background: var(--panel); border: 1px solid var(--amber); color: var(--amber); padding: 5px 12px;
+           transition: opacity 0.8s; }
+  #draghint { position: fixed; pointer-events: none; color: var(--amber); display: none; }
+  .hidden { display: none !important; }
+</style>
+</head>
+<body>
+<canvas id="sky"></canvas>
+
+<div id="title" class="panel">
+  <h1>GRAVITY</h1>
+  <div class="sub" id="scene-title">Sun, Earth, Moon &amp; Mars</div>
+  <div id="clock">Day 0</div>
+</div>
+
+<div id="bodies" class="panel">
+  <table>
+    <thead><tr><th>body</th><th>orbiting</th><th class="num">distance</th><th class="num">speed</th></tr></thead>
+    <tbody id="body-rows"></tbody>
+  </table>
+</div>
+
+<div id="controls" class="panel">
+  <label>Scene
+    <select id="preset">
+      <option value="solar">1 Sun, Earth, Moon &amp; Mars</option>
+      <option value="inner">2 Inner planets + Jupiter</option>
+      <option value="binary">3 Binary star</option>
+      <option value="figure8">4 Three-star figure eight</option>
+    </select>
+  </label>
+  <label><span>Speed <span id="speed-label">20 days/s</span></span><input id="speed" type="range" min="0" max="100" step="1"></label>
+  <label><span id="mass-name">Sun mass</span><span id="mass-label">x1.00</span><input id="mass" type="range" min="0.2" max="3" step="0.05" value="1"></label>
+  <div class="checks">
+    <label><input id="opt-trails" type="checkbox" checked>trails</label>
+    <label><input id="opt-grid" type="checkbox" checked>grid</label>
+    <label><input id="opt-labels" type="checkbox" checked>names</label>
+    <label title="The Moon is really only 0.0026 AU from Earth, which would put it inside Earth's dot. It is drawn 30x further out unless this is ticked."><input id="opt-truemoon" type="checkbox">real Moon distance</label>
+  </div>
+  <div class="row">
+    <button id="btn-pause">Pause</button>
+    <button id="btn-reset">Reset</button>
+    <button id="btn-clear">Clear trails</button>
+  </div>
+</div>
+
+<div id="help" class="panel">
+  <b>Drag</b> the Sun or a planet to move it. Let go <b>while moving</b> to throw it; hold <b>Shift</b> as you let go
+  to give it a round orbit.<br>
+  Drag empty space: rotate · right-drag: pan · wheel: zoom · double-click a body: follow it<br>
+  <b>Space</b> pause · <b>&uarr;/&darr;</b> speed · <b>R</b> reset · <b>T</b> trails · <b>G</b> grid ·
+  <b>M</b> real Moon distance · <b>1-4</b> scenes · <b>H</b> hide this
+</div>
+
+<div id="toasts"></div>
+<div id="draghint">let go to throw · Shift = round orbit</div>
+
+<script src="physics.js"></script>
+<script src="view.js"></script>
+</body>
+</html>
